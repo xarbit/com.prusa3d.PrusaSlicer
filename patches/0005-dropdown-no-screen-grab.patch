@@ -1,0 +1,69 @@
+Description: Stop reading the screen back to fake a transparent dropdown background
+ Reading the screen is not possible under Wayland and can feed the popup's
+ own pixels back into itself under X11, which washes it out on every
+ repaint. Related to upstream issue #11743.
+Author: Jason Scurtu <github@mail.scurtu.me>
+Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
+License: AGPL-3.0-or-later
+Forwarded: not yet submitted
+Last-Update: 2026-09-13
+
+diff --git a/src/slic3r-shared-wx/src/Slic3r/App/WX/Widgets/DropDown.cpp b/src/slic3r-shared-wx/src/Slic3r/App/WX/Widgets/DropDown.cpp
+index 2e9cf4754c..e5cd619422 100644
+--- a/src/slic3r-shared-wx/src/Slic3r/App/WX/Widgets/DropDown.cpp
++++ b/src/slic3r-shared-wx/src/Slic3r/App/WX/Widgets/DropDown.cpp
+@@ -15,6 +15,7 @@
+ 
+ #ifdef __WXGTK__
+ #include <gtk/gtk.h>
++#include <wx/settings.h>
+ #endif
+ 
+ namespace Slic3r::App::WX::Widgets {
+@@ -247,23 +248,34 @@ void DropDown::paintNow()
+ 
+ void DropDown::SetTransparentBG(wxDC& dc, wxWindow* win)
+ {
+-    const wxSize  size       = win->GetSize();
+-    const wxPoint screen_pos = win->GetScreenPosition();
+-    wxScreenDC    screen_dc;
++    const wxSize size = win->GetSize();
+ 
+ #ifdef __WXMSW__
+     // Draw screen_dc to dc for transparent background
++    const wxPoint screen_pos = win->GetScreenPosition();
++    wxScreenDC    screen_dc;
+     dc.Blit(0, 0, size.x, size.y, &screen_dc, screen_pos.x, screen_pos.y);
+ #else
+-    // See https://forums.wxwidgets.org/viewtopic.php?f=1&t=49318
+-    wxClientDC client_dc(win);
+-    client_dc.Blit(0, 0, size.x, size.y, &screen_dc, screen_pos.x, screen_pos.y);
+-
+-    wxBitmap bmp(size.x, size.y);
+-    wxMemoryDC mem_dc(bmp);
+-    mem_dc.Blit(0, 0, size.x, size.y, &client_dc, 0, 0);
+-    mem_dc.SelectObject(wxNullBitmap);
+-    dc.DrawBitmap(bmp, 0, 0);
++    // Reading the screen back is not a reliable way to obtain what is behind
++    // the popup. Under Wayland a client can neither read the screen contents
++    // nor ask for its own global position, so both the source bitmap and the
++    // coordinates used above are meaningless there. Under X11 the grab can
++    // include the popup's own pixels, which are then blitted back into it, so
++    // the window washes out a little more on every repaint (#11743).
++    //
++    // The popup is always drawn on top of its parent, so filling with the
++    // parent's background colour gives the corners outside the rounded
++    // rectangle the same appearance without reading anything back.
++    const wxWindow* parent = win->GetParent();
++    wxColour bg = parent ? parent->GetBackgroundColour() : wxColour();
++    if (!bg.IsOk())
++        bg = win->GetBackgroundColour();
++    if (!bg.IsOk())
++        bg = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
++
++    dc.SetPen(*wxTRANSPARENT_PEN);
++    dc.SetBrush(wxBrush(bg));
++    dc.DrawRectangle(0, 0, size.x, size.y);
+ #endif //__WXMSW__
+ }
+ 

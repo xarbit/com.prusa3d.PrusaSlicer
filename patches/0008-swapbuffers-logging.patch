@@ -1,0 +1,44 @@
+Description: Do not report the first buffer swaps as errors under Wayland
+ With the EGL backend wxGLCanvas::SwapBuffers() returns false until the
+ compositor signals that the surface is ready, which wx does deliberately
+ because presenting earlier can deadlock inside eglSwapBuffers(). The GLX
+ backend never returned false, so enabling EGL turns a normal start into
+ several logged errors. Report an error only after a frame has actually
+ been presented.
+Author: Jason Scurtu <github@mail.scurtu.me>
+Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
+License: AGPL-3.0-or-later
+Forwarded: https://github.com/prusa3d/PrusaSlicer/pull/15826
+Last-Update: 2026-09-13
+diff --git a/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp b/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
+index f009a77b01..4fd536c17c 100644
+--- a/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
++++ b/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
+@@ -64,6 +64,7 @@ private:
+     bool m_initialized{false};
+     bool m_in_render{false};
+     bool m_pending_frame{false};
++    bool m_presented_once{false};
+ 
+     static constexpr size_t MAX_INFLIGHT_FRAMES{1};
+     GLsync m_frame_fence[MAX_INFLIGHT_FRAMES] = {nullptr};
+diff --git a/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp b/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
+index c0d5f95718..96b518b3f4 100644
+--- a/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
++++ b/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
+@@ -1117,8 +1117,14 @@ void WXRenderCanvas::end_frame_platform()
+         FrameMark;
+ 
+         ZoneScopedN("swap_buffers");
+-        if (!wxGLCanvas::SwapBuffers()) {
++        if (wxGLCanvas::SwapBuffers()) {
++            m_presented_once = true;
++        } else if (m_presented_once) {
+             SPDLOG_ERROR("Swapping buffers failed!");
++        } else {
++            // Expected: the EGL backend does not present until the compositor
++            // has signalled that the surface is ready.
++            SPDLOG_DEBUG("Swapping buffers before the surface is ready.");
+         }
+         m_frame_fence[m_current_frame_idx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+         //assert_no_gl_error();

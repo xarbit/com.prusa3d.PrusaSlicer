@@ -1,0 +1,174 @@
+Description: Eject removable drives through UDisks2 instead of the umount binary
+ umount needs privileges the sandbox does not have. Calling
+ org.freedesktop.UDisks2.Filesystem.Unmount works unprivileged and lets
+ the desktop show its safe-removal notification. Makes the bundled
+ umount shim redundant.
+Author: Jason Scurtu <github@mail.scurtu.me>
+Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
+License: AGPL-3.0-or-later
+Forwarded: not yet submitted
+Last-Update: 2026-09-13
+
+diff --git a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
+index 3d9608f6b2..f987da0524 100644
+--- a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
++++ b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
+@@ -6,6 +6,15 @@
+ #include <fmt/format.h>
+ #include <boost/process.hpp>
+ 
++#include "Slic3r/Utils.hpp"
++
++#include <dbus/dbus.h>
++
++#include <charconv>
++#include <fstream>
++#include <sstream>
++#include <string>
++
+ namespace Slic3r::Biz::RemovableDrive {
+ 
+ RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& dispatcher) :
+@@ -14,8 +23,142 @@ RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& di
+ {}
+ 
+ namespace {
++
++// Look up the device node a path is mounted from, e.g. "/run/media/user/USB"
++// -> "/dev/sdb1". Returns an empty string when the path is not a mount point.
++std::string device_node_for_mount_point(const boost::filesystem::path& path)
++{
++    // /proc/self/mountinfo is used rather than /proc/mounts because its mount
++    // point field is unambiguous and octal escaped in a documented way.
++    std::ifstream mountinfo("/proc/self/mountinfo");
++    if (!mountinfo)
++        return {};
++
++    const std::string wanted = path.string();
++    std::string line;
++    std::string result;
++    while (std::getline(mountinfo, line)) {
++        // 36 35 98:0 /mnt1 /mnt2 rw,noatime - ext3 /dev/root rw,errors=continue
++        //                        ^ field 5     ^ separator   ^ mount source
++        std::istringstream fields(line);
++        std::string field;
++        std::string mount_point;
++        for (int i = 0; i < 5 && fields >> field; ++i)
++            mount_point = field;
++
++        // Mount points containing spaces, tabs, newlines or backslashes are
++        // escaped as octal sequences.
++        std::string unescaped;
++        for (std::size_t i = 0; i < mount_point.size(); ++i) {
++            unsigned value{};
++            const char* first = mount_point.data() + i + 1;
++            const char* last  = first + 3;
++            if (mount_point[i] == '\\' && i + 3 < mount_point.size() &&
++                std::from_chars(first, last, value, 8).ptr == last) {
++                unescaped += static_cast<char>(value);
++                i += 3;
++            } else {
++                unescaped += mount_point[i];
++            }
++        }
++        if (unescaped != wanted)
++            continue;
++
++        // Skip the optional fields and the "-" separator, then read the type
++        // and the mount source.
++        while (fields >> field && field != "-") {}
++        std::string fstype;
++        std::string source;
++        if (fields >> fstype >> source)
++            result = source;
++        // Keep scanning: for stacked mounts the last entry is the effective one.
++    }
++    return result;
++}
++
++// Unmount through UDisks2 rather than the umount binary. This works without
++// elevated privileges, is available inside sandboxes where umount is not, and
++// lets the desktop show its usual "device can be safely removed" notification.
++enum class EjectResult
++{
++    Ejected,     // UDisks2 unmounted the filesystem
++    Refused,     // UDisks2 answered and declined; umount would not do better
++    Unsupported, // UDisks2 is not usable here, the caller should fall back
++};
++
++EjectResult eject_via_udisks2(const boost::filesystem::path& path)
++{
++    const std::string device = device_node_for_mount_point(path);
++    if (!device.starts_with("/dev/")) {
++        SPDLOG_DEBUG("Could not resolve a device node for {}", path.string());
++        return EjectResult::Unsupported;
++    }
++
++    DBusError error;
++    dbus_error_init(&error);
++    ScopeGuard error_guard([&error]() { dbus_error_free(&error); });
++
++    DBusConnection* connection = dbus_bus_get(DBUS_BUS_SYSTEM, &error);
++    if (!connection) {
++        SPDLOG_DEBUG("No system bus connection: {}", error.message ? error.message : "unknown");
++        return EjectResult::Unsupported;
++    }
++    ScopeGuard connection_guard([connection]() { dbus_connection_unref(connection); });
++
++    const std::string object_path =
++        "/org/freedesktop/UDisks2/block_devices/" + boost::filesystem::path(device).filename().string();
++
++    DBusMessage* message = dbus_message_new_method_call(
++        "org.freedesktop.UDisks2",            // Destination
++        object_path.c_str(),                  // Object path
++        "org.freedesktop.UDisks2.Filesystem", // Interface
++        "Unmount"                             // Method
++    );
++    if (!message) {
++        SPDLOG_ERROR("Failed to create the UDisks2 Unmount message.");
++        return EjectResult::Unsupported;
++    }
++    ScopeGuard message_guard([message]() { dbus_message_unref(message); });
++
++    // Unmount takes a{sv} options; an empty dictionary selects the defaults.
++    DBusMessageIter args;
++    DBusMessageIter options;
++    dbus_message_iter_init_append(message, &args);
++    if (!dbus_message_iter_open_container(&args, DBUS_TYPE_ARRAY, "{sv}", &options) ||
++        !dbus_message_iter_close_container(&args, &options)) {
++        SPDLOG_ERROR("Ran out of memory while constructing the UDisks2 Unmount message.");
++        return EjectResult::Unsupported;
++    }
++
++    DBusMessage* reply = dbus_connection_send_with_reply_and_block(connection, message, -1, &error);
++    if (reply) {
++        dbus_message_unref(reply);
++        return EjectResult::Ejected;
++    }
++
++    // Distinguish "UDisks2 is not there" from "UDisks2 said no". Only the
++    // former is worth retrying with umount.
++    const std::string name = error.name ? error.name : "";
++    const std::string text = error.message ? error.message : "unknown error";
++    if (name == DBUS_ERROR_SERVICE_UNKNOWN || name == DBUS_ERROR_NAME_HAS_NO_OWNER ||
++        name == DBUS_ERROR_UNKNOWN_OBJECT || name == DBUS_ERROR_UNKNOWN_INTERFACE ||
++        name == DBUS_ERROR_UNKNOWN_METHOD) {
++        SPDLOG_DEBUG("UDisks2 not usable for ejecting ({}): {}", name, text);
++        return EjectResult::Unsupported;
++    }
++
++    SPDLOG_ERROR("Ejecting failed: {}", text);
++    return EjectResult::Refused;
++}
++
+ bool eject_inner(const boost::filesystem::path& path)
+ {
++    switch (eject_via_udisks2(path)) {
++    case EjectResult::Ejected:     return true;
++    case EjectResult::Refused:     return false;
++    case EjectResult::Unsupported: break; // fall through to umount
++    }
++
+     // there is no usable command in c++ so terminal command is used instead
+     // but neither triggers "succesful safe removal messege"
+     boost::process::ipstream istd_err;

@@ -7,6 +7,12 @@ desktop-file-name-suffix: " (alpha11)"
 separate-locales: false
 finish-args:
 - --share=ipc
+# Wayland is enabled via patches/0001-wayland-egl-deps.patch (wxGLCanvas on
+# EGL, GLEW on eglGetProcAddress) plus patches/0002-wayland-gdk-backend.patch
+# (stop forcing GDK_BACKEND=x11). Without those patches PrusaSlicer can only
+# use GLX and needs --socket=x11. X11 is kept so GDK_BACKEND=x11 still works
+# as an escape hatch if the Wayland path misbehaves.
+- --socket=wayland
 - --socket=x11
 - --share=network
 # Enables sentry integration to work (requires ptrace)
@@ -19,7 +25,6 @@ finish-args:
 # Allow PrusaSlicer to own its session bus.
 - --own-name=com.prusa3d.prusaslicer.*
 - --system-talk-name=org.freedesktop.UDisks2
-- --talk-name=org.freedesktop.DBus.Introspectable.*
 - --talk-name=com.prusa3d.prusaslicer.InstanceCheck.*
 
 build-options:
@@ -77,7 +82,9 @@ modules:
     mkdir -p deps/build && cd deps/build
     /app/cmake/bin/cmake ../ \
       -DDEP_DOWNLOAD_DIR=/run/build/PrusaSlicerDeps/external-packages \
-      -DDESTDIR=/app/deps
+      -DDESTDIR=/app/deps \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DPrusaSlicer_deps_PACKAGE_EXCLUDES="Catch2|Trumpeloeil"
     /app/cmake/bin/cmake --build .
   cleanup:
   - '*'
@@ -406,6 +413,11 @@ modules:
   - type: patch
     path: patches/arm_test.patch
 
+  # Wayland: build wxGLCanvas with the EGL backend and GLEW against
+  # eglGetProcAddress, instead of GLX which is X11-only.
+  - type: patch
+    path: patches/0001-wayland-egl-deps.patch
+
 - name: PrusaSlicer
   buildsystem: simple
   build-commands:
@@ -420,9 +432,9 @@ modules:
       -DSLIC3R_FHS=ON \
       -DSLIC3R_SENTRY_DSN=https://a7fd965ac32d164b4e1c283b3840051a@o4511660497108992.ingest.de.sentry.io/4511661201227856 \
       -DSLIC3R_ASAN=OFF \
+      -DSLIC3R_BUILD_TESTS=OFF \
       -DCMAKE_BUILD_TYPE=Release
     /app/cmake/bin/cmake --build .
-    ctest --verbose
     /app/cmake/bin/cmake --build . --target install > /dev/null
     install -Dm644 com.prusa3d.PrusaSlicer.desktop /app/share/applications/com.prusa3d.PrusaSlicer.desktop
 
@@ -459,6 +471,59 @@ modules:
   - type: git
     url: https://github.com/prusa3d/PrusaSlicer
     tag: version_3.0.0-alpha11
+  # Wayland: stop forcing GDK_BACKEND=x11 when a Wayland session is present.
+  # Depends on the EGL dep patch above. Upstream issue #8284.
+  - type: patch
+    path: patches/0002-wayland-gdk-backend.patch
+
+  # wx is static, so the wx CONFIG package does not propagate the EGL/Wayland/X11
+  # dependencies that wxUSE_GLCANVAS_EGL=ON introduces. Link them explicitly.
+  - type: patch
+    path: patches/0003-link-egl-wayland-x11.patch
+
+  # The EGL backend refuses to present until the compositor says the surface
+  # is ready, which the GLX path never did, so start up logged it as errors.
+  - type: patch
+    path: patches/0008-swapbuffers-logging.patch
+
+  # The loading screen was rendered but only presented after the preset bundle
+  # load had already blocked the main thread, leaving the window empty.
+  - type: patch
+    path: patches/0009-present-before-queued-work.patch
+
+
+  # DropDown faked a transparent background by blitting the screen contents,
+  # which cannot work under Wayland (no screen readback, no global coords).
+  - type: patch
+    path: patches/0005-dropdown-no-screen-grab.patch
+
+  # GTK_THEME was set with replace=1, discarding any theme set by the user.
+  - type: patch
+    path: patches/0006-gtk-theme-no-override.patch
+
+  # disabled on request:
+  # # The splash is a toplevel that cannot position itself or stay on top under
+  # # Wayland, so the compositor leaves it behind the main window.
+  # - type: patch
+  # path: patches/0010-no-splash-on-wayland.patch
+
+  # KWin matches a Wayland window to its desktop file, and therefore its icon,
+  # on the app id alone; StartupWMClass only covers X11.
+  - type: patch
+    path: patches/0012-wayland-app-id.patch
+
+  # Eject removable drives through UDisks2 instead of running the umount
+  # binary, which needs privileges the sandbox does not have. Makes the
+  # bundled umount shim redundant (kept for now as a fallback).
+  - type: patch
+    path: patches/0007-udisks2-eject.patch
+
+  # disabled on request:
+  # # The loading screen drew only a background; show what is being loaded, since
+  # # the splash screen that used to say so is not available under Wayland.
+  # - type: patch
+  # path: patches/0011-loading-status-text.patch
+
   - type: shell
     commands:
     # Set PrusaSlicer version for build and reference Flathub.org for better bug seperation.

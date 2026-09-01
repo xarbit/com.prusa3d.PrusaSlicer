@@ -1,0 +1,129 @@
+Description: Show the logo and what is being loaded on the loading screen
+ LoadingRenderModule drew nothing but the background, so the window was empty
+ for the whole of start up. The splash screen used to carry that information
+ but is a separate toplevel that cannot be placed or stacked under Wayland, so
+ it is not shown there. Draws the same three messages in the middle of the
+ canvas instead, which needs no positioning and no stacking and behaves the
+ same on every platform.
+Author: Jason Scurtu <github@mail.scurtu.me>
+Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
+License: AGPL-3.0-or-later
+Forwarded: not yet submitted
+Last-Update: 2026-09-13
+diff --git a/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp b/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
+index 9b3be3728c..bcfadba698 100644
+--- a/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
++++ b/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
+@@ -474,6 +474,7 @@ void DesktopApp::finish_init()
+ 
+     if (m_splash_screen)
+         m_splash_screen->SetText(WX::_L("Initializing Prepare Mode") + dots);
++    m_loading_module->set_status(Biz::_u8L("Initializing Prepare Mode") + "...");
+ 
+     auto font_manager = std::make_unique<Biz::WX::FontManager>(data_dir());
+ 
+@@ -490,6 +491,7 @@ void DesktopApp::finish_init()
+ 
+     if (m_splash_screen)
+         m_splash_screen->SetText(WX::_L("Initializing Preview Mode") + dots);
++    m_loading_module->set_status(Biz::_u8L("Initializing Preview Mode") + "...");
+ 
+     m_preview_module = std::make_unique<Preview::PreviewRenderModule>(
+         m_workbench,
+diff --git a/src/slic3r-shared/include/Slic3r/App/LoadingRenderModule.hpp b/src/slic3r-shared/include/Slic3r/App/LoadingRenderModule.hpp
+index d134e2a37a..21e8f33b42 100644
+--- a/src/slic3r-shared/include/Slic3r/App/LoadingRenderModule.hpp
++++ b/src/slic3r-shared/include/Slic3r/App/LoadingRenderModule.hpp
+@@ -5,6 +5,8 @@
+ #include "Slic3r/App/Platform/AbstractRenderModule.hpp"
+ #include "Slic3r/App/PresetUpdater/PresetUpdaterDialog.hpp"
+ #include "Slic3r/App/Yoga/RootItem.hpp"
++#include "Slic3r/App/Yoga/Icon.hpp"
++#include "Slic3r/App/Yoga/Text.hpp"
+ 
+ namespace Slic3r::App {
+ 
+@@ -27,6 +29,14 @@ public:
+     void set_opened_preset_updater(bool opened);
+     bool is_opened_preset_updater() const;
+ 
++    /**
++     * @brief Sets the line shown in the middle of the loading screen.
++     *
++     * Start up is a sequence of long steps and this is what tells the user
++     * which one is running. Safe to call before on_init().
++     */
++    void set_status(const std::string& status);
++
+     void render_scene(Render::CommandBuffer& cmd_buffer) override;
+     void render_imgui(Render::CommandBuffer& cmd_buffer) override;
+ 
+@@ -61,6 +71,8 @@ private:
+     Navigator& m_navigator;
+ 
+     Yoga::RootItem m_layout;
++    Yoga::Text* m_status_text{nullptr};
++    std::string m_status;
+     Yoga::SizeInfo m_info;
+     Yoga::Passthrough<PresetUpdaterDialog> m_dialog;
+ 
+diff --git a/src/slic3r-shared/src/Slic3r/App/LoadingRenderModule.cpp b/src/slic3r-shared/src/Slic3r/App/LoadingRenderModule.cpp
+index 4dc1c00308..918afd6d60 100644
+--- a/src/slic3r-shared/src/Slic3r/App/LoadingRenderModule.cpp
++++ b/src/slic3r-shared/src/Slic3r/App/LoadingRenderModule.cpp
+@@ -7,6 +7,7 @@
+ #include "Slic3r/App/Render/ScopedDebugGroup.hpp"
+ #include "Slic3r/App/Theme.hpp"
+ #include "Slic3r/App/Yoga/ImGuiUtils.hpp"
++#include "Slic3r/Biz/I18N/I18N.hpp"
+ 
+ namespace Slic3r::App {
+ 
+@@ -16,7 +17,8 @@ LoadingRenderModule::LoadingRenderModule(
+     m_controller(controller),
+     m_navigator(navigator),
+     m_menu_manager(m_command_registry),
+-    m_command_binding_manager(m_command_registry)
++    m_command_binding_manager(m_command_registry),
++    m_status(Biz::_u8L("Loading configurations") + "...")
+ {}
+ 
+ LoadingRenderModule::~LoadingRenderModule() = default;
+@@ -33,11 +35,37 @@ void LoadingRenderModule::on_init(
+     Yoga::Item::set_imgui_render(&imgui_render);
+     Yoga::Item::set_theme(&AppServices::instance().theme());
+ 
++    // A single centred line, so the window says what it is doing instead of
++    // showing an empty background while the presets are being loaded.
++    Yoga::Item* status_box = m_layout.emplace_back<Yoga::Item>();
++    status_box->set_width_percent(100.f);
++    status_box->set_height_percent(100.f);
++    status_box->set_orientation(Yoga::Orientation::Vertical);
++    status_box->set_justify_content(YGJustifyCenter);
++    status_box->set_align_items(YGAlignCenter);
++    status_box->set_gap(16.f);
++
++    // The application icon, so the loading screen is recognisably PrusaSlicer
++    // rather than an empty window. Loaded as SVG so it stays sharp at any
++    // scale factor.
++    Yoga::Icon* logo = status_box->emplace_back<Yoga::Icon>(Render::Icon::None, 128);
++    logo->set_image("icons/PrusaSlicer.svg");
++
++    m_status_text = status_box->emplace_back<Yoga::Text>(m_status);
++
+     m_dialog.reset(std::make_unique<PresetUpdaterDialog>(m_controller, m_navigator));
+     m_layout.append(m_dialog.release());
+     m_dialog->attach_to_center();
+ }
+ 
++void LoadingRenderModule::set_status(const std::string& status)
++{
++    m_status = status;
++    if (m_status_text != nullptr) {
++        m_status_text->set_text(m_status);
++    }
++}
++
+ void LoadingRenderModule::set_opened_preset_updater(bool opened)
+ {
+     if (m_dialog.get() == nullptr || m_dialog->opened() == opened) {

@@ -1,0 +1,30 @@
+Description: Stop forcing GDK_BACKEND=x11 when running under Wayland
+ Falls back to X11 only when WAYLAND_DISPLAY is absent, and no longer
+ overrides a GDK_BACKEND set by the user. Fixes upstream issue #8284.
+Author: Jason Scurtu <github@mail.scurtu.me>
+Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
+License: AGPL-3.0-or-later
+Forwarded: https://github.com/prusa3d/PrusaSlicer/pull/15826
+Last-Update: 2026-09-13
+
+diff --git a/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp b/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
+index 01c15dd0d6..d881777a6a 100644
+--- a/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
++++ b/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
+@@ -162,10 +162,12 @@ int run(const Slic3r::App::InitParams& init_params, AppServices& app_services)
+     ::setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1", /* replace */ false);
+     ::setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", /* replace */ false);
+ 
+-    // On Linux, wxGTK has no support for Wayland, and the app crashes on
+-    // startup if gtk3 is used. This env var has to be set explicitly to
+-    // instruct the window manager to fall back to X server mode.
+-    ::setenv("GDK_BACKEND", "x11", /* replace */ true);
++    // wxGLCanvas now uses EGL, which works on Wayland as well as X11, so the
++    // backend no longer has to be forced. Fall back to X11 only without a
++    // Wayland session, and leave an explicitly set GDK_BACKEND alone.
++    if (::getenv("WAYLAND_DISPLAY") == nullptr) {
++        ::setenv("GDK_BACKEND", "x11", /* replace */ false);
++    }
+ 
+     if (app_services.app_config().get<Theme::Style>("theme") == Theme::Style::Light) {
+         setenv("GTK_THEME", "Adwaita:light", 1);

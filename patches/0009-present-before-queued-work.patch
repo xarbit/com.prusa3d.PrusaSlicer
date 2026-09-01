@@ -1,0 +1,62 @@
+Description: Get the loading screen on screen before running queued main thread work
+ on_idle() drained the main thread dispatcher before repainting, so the
+ preset bundle load queued at start up blocked the main thread for over a
+ second before the canvas ever presented. The loading screen was rendered
+ the whole time but never reached the screen, leaving the window empty.
+ X11 masked this with the splash screen; Wayland does not, since the splash
+ is an ordinary toplevel placed by the compositor. Presents a frame first,
+ with a 500 ms deadline so start up cannot be postponed indefinitely.
+Author: Jason Scurtu <github@mail.scurtu.me>
+Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
+License: AGPL-3.0-or-later
+Forwarded: https://github.com/prusa3d/PrusaSlicer/pull/15826
+diff --git a/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp b/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
+index 4fd536c17c..c3782bb058 100644
+--- a/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
++++ b/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
+@@ -2,6 +2,7 @@
+ 
+ #include <memory>
+ #include <chrono>
++#include <optional>
+ 
+ #include <GL/glew.h>
+ #include <wx/glcanvas.h>
+@@ -65,6 +66,7 @@ private:
+     bool m_in_render{false};
+     bool m_pending_frame{false};
+     bool m_presented_once{false};
++    std::optional<std::chrono::steady_clock::time_point> m_first_present_deadline;
+ 
+     static constexpr size_t MAX_INFLIGHT_FRAMES{1};
+     GLsync m_frame_fence[MAX_INFLIGHT_FRAMES] = {nullptr};
+diff --git a/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp b/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
+index 96b518b3f4..382e39b5ae 100644
+--- a/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
++++ b/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
+@@ -998,6 +998,25 @@ void WXRenderCanvas::on_idle(wxIdleEvent& event)
+         return;
+     }
+ 
++    // Queued work can block the main thread for a long time, loading the preset
++    // bundles being the obvious case, which would leave the window empty for
++    // its whole duration. Get a frame out first. Under Wayland presenting only
++    // succeeds once the compositor says the surface is ready, so give up after
++    // a deadline rather than postponing start up if no frame ever gets through.
++    if (!m_presented_once) {
++        const auto now = std::chrono::steady_clock::now();
++        if (!m_first_present_deadline) {
++            m_first_present_deadline = now + std::chrono::milliseconds(500);
++        }
++
++        repaint();
++
++        if (!m_presented_once && now < *m_first_present_deadline) {
++            wxWakeUpIdle();
++            return;
++        }
++    }
++
+     m_main_thread_dispatcher.dispatch_enqueued();
+     bool render_requested = get_and_reset_render_requested();
+     // std::cout << "Idle: render requested: " << render_requested << "\n";

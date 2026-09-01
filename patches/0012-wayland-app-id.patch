@@ -1,0 +1,87 @@
+Description: Announce the desktop file name as the Wayland app id
+ A Wayland compositor finds a window's icon by looking for a desktop file named
+ after the app id the window advertises. GTK derives that from the program
+ name, which defaults to the executable, so the window announced
+ slic3r-app-launcher while the installed desktop file is
+ com.prusa3d.PrusaSlicer, and no icon was found. StartupWMClass cannot fix it:
+ that describes WM_CLASS, which only exists on X11, and KWin matches Wayland
+ windows on the app id alone.
+Author: Jason Scurtu <github@mail.scurtu.me>
+Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
+License: AGPL-3.0-or-later
+Forwarded: https://github.com/prusa3d/PrusaSlicer/pull/15826
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 98286f67cb..e14117ae54 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -96,10 +96,13 @@ include(GNUInstallDirs)
+ include(CMakeDependentOption)
+ include(Utils)
+ 
++# Also the app id the window announces, see g_set_prgname() in DesktopApp.cpp.
++set(SLIC3R_DESKTOP_FILE_NAME "com.prusa3d.PrusaSlicer")
++
+ if (UNIX AND NOT APPLE)
+     configure_file(
+-        ${CMAKE_SOURCE_DIR}/src/platform/unix/com.prusa3d.PrusaSlicer.desktop.in
+-        ${CMAKE_BINARY_DIR}/com.prusa3d.PrusaSlicer.desktop
++        ${CMAKE_SOURCE_DIR}/src/platform/unix/${SLIC3R_DESKTOP_FILE_NAME}.desktop.in
++        ${CMAKE_BINARY_DIR}/${SLIC3R_DESKTOP_FILE_NAME}.desktop
+         @ONLY
+     )
+ endif ()
+diff --git a/src/platform/unix/com.prusa3d.PrusaSlicer.desktop.in b/src/platform/unix/com.prusa3d.PrusaSlicer.desktop.in
+index 5d3528cdf9..7b760a43c0 100644
+--- a/src/platform/unix/com.prusa3d.PrusaSlicer.desktop.in
++++ b/src/platform/unix/com.prusa3d.PrusaSlicer.desktop.in
+@@ -9,4 +9,4 @@ MimeType=model/stl;application/vnd.ms-3mfdocument;application/prs.wavefront-obj;
+ Categories=Graphics;3DGraphics;Engineering;
+ Keywords=3D;Printing;Slicer;slice;3D;printer;convert;gcode;stl;obj;amf;SLA
+ StartupNotify=false
+-StartupWMClass=prusa-slicer
++StartupWMClass=@SLIC3R_DESKTOP_FILE_NAME@
+diff --git a/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp b/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
+index 2cc3df217a..32012af181 100644
+--- a/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
++++ b/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
+@@ -1,5 +1,11 @@
+ #include "DesktopApp.hpp"
+ 
++#ifdef __WXGTK__
++#include <glib.h>
++
++#include "Slic3r/Version.hpp"
++#endif
++
+ #include "MainFrame.hpp"
+ #include "Slic3r/App/Undo/Store.hpp"
+ #include "SplashScreen.hpp"
+@@ -169,6 +175,11 @@ int run(const Slic3r::App::InitParams& init_params, AppServices& app_services)
+         ::setenv("GDK_BACKEND", "x11", /* replace */ false);
+     }
+ 
++    // A compositor finds a window's icon through the desktop file named after
++    // the app id the window announces. GTK takes that from the program name,
++    // which defaults to the executable, so it has to be set before GTK starts.
++    ::g_set_prgname(SLIC3R_DESKTOP_FILE_NAME);
++
+     // GTK_THEME is deliberately not set here. wxWidgets skips creating its
+     // org.freedesktop.portal.Settings proxy when GTK_THEME is present in the
+     // environment (see wxSystemSettingsModule::OnInit), and that proxy is what
+diff --git a/src/slic3r-base/include/Slic3r/Version.hpp.in b/src/slic3r-base/include/Slic3r/Version.hpp.in
+index c61ed0c960..d90c5f0dbe 100644
+--- a/src/slic3r-base/include/Slic3r/Version.hpp.in
++++ b/src/slic3r-base/include/Slic3r/Version.hpp.in
+@@ -4,10 +4,12 @@
+ #define SLIC3R_APP_KEY "@SLIC3R_APP_KEY@"
+ #define SLIC3R_VERSION "@SLIC3R_VERSION@"
+ #define SLIC3R_BUILD_ID "@SLIC3R_BUILD_ID@"
++#define SLIC3R_DESKTOP_FILE_NAME "@SLIC3R_DESKTOP_FILE_NAME@"
+ 
+ namespace Slic3r {
+     constexpr const char* APP_NAME = SLIC3R_APP_NAME;
+     constexpr const char* APP_KEY = SLIC3R_APP_KEY;
+     constexpr const char* VERSION = SLIC3R_VERSION;
+     constexpr const char* BUILD_ID = SLIC3R_BUILD_ID;
++    constexpr const char* DESKTOP_FILE_NAME = SLIC3R_DESKTOP_FILE_NAME;
+ }

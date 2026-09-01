@@ -1,0 +1,34 @@
+Description: Build wxGLCanvas and GLEW against EGL instead of GLX
+ GLX is X11 only, so the 3D view could never obtain a context under
+ Wayland. Builds wxWidgets with wxUSE_GLCANVAS_EGL and GLEW with
+ GLEW_EGL. EGL also works on X11, so one binary serves both.
+Author: Jason Scurtu <github@mail.scurtu.me>
+Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
+License: AGPL-3.0-or-later
+Forwarded: https://github.com/prusa3d/PrusaSlicer/pull/15826
+Last-Update: 2026-09-13
+
+diff --git a/deps/+GLEW/GLEW.cmake b/deps/+GLEW/GLEW.cmake
+index 529d1aee4b..e85bb53ce2 100644
+--- a/deps/+GLEW/GLEW.cmake
++++ b/deps/+GLEW/GLEW.cmake
+@@ -7,5 +7,6 @@ add_cmake_project(
+   EMSCRIPTEN_EXCLUDED ON
+   CMAKE_ARGS
+     -DBUILD_UTILS=OFF
++    -DGLEW_EGL=ON
+     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+ )
+diff --git a/deps/+wxWidgets/wxWidgets.cmake b/deps/+wxWidgets/wxWidgets.cmake
+index 4500b835de..62abf84854 100644
+--- a/deps/+wxWidgets/wxWidgets.cmake
++++ b/deps/+wxWidgets/wxWidgets.cmake
+@@ -48,7 +48,7 @@ add_cmake_project(wxWidgets
+         -DwxUSE_LIBSDL=OFF
+         -DwxUSE_STC=OFF
+         -DwxUSE_XTEST=OFF
+-        -DwxUSE_GLCANVAS_EGL=OFF
++        -DwxUSE_GLCANVAS_EGL=ON
+         -DwxUSE_WEBREQUEST=OFF
+         -DwxUSE_UNSAFE_WXSTRING_CONV=OFF
+         -DwxUSE_EXCEPTIONS=OFF
