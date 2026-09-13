@@ -500,12 +500,6 @@ modules:
   - type: patch
     path: patches/0006-gtk-theme-no-override.patch
 
-  # disabled on request:
-  # # The splash is a toplevel that cannot position itself or stay on top under
-  # # Wayland, so the compositor leaves it behind the main window.
-  # - type: patch
-  # path: patches/0010-no-splash-on-wayland.patch
-
   # KWin matches a Wayland window to its desktop file, and therefore its icon,
   # on the app id alone; StartupWMClass only covers X11.
   - type: patch
@@ -523,12 +517,6 @@ modules:
   # loses its Eject button.
   - type: patch
     path: patches/0013-portal-removable-drive.patch
-
-  # disabled on request:
-  # # The loading screen drew only a background; show what is being loaded, since
-  # # the splash screen that used to say so is not available under Wayland.
-  # - type: patch
-  # path: patches/0011-loading-status-text.patch
 
   - type: shell
     commands:
