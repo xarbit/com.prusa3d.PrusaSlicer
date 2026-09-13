@@ -3,6 +3,10 @@ Description: Eject removable drives through UDisks2 instead of the umount binary
  org.freedesktop.UDisks2.Filesystem.Unmount works unprivileged and lets
  the desktop show its safe-removal notification. Makes the bundled
  umount shim redundant.
+ The device node is resolved through any symlink and encoded the way
+ UDisks2 names its block device objects, keeping alphanumeric characters
+ and writing every other byte as an underscore and two hex digits, so an
+ encrypted drive at /dev/mapper/luks-<uuid> reaches the object dm_2d0.
 Author: Jason Scurtu <github@mail.scurtu.me>
 Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
 License: AGPL-3.0-or-later
@@ -10,7 +14,7 @@ Forwarded: not yet submitted
 Last-Update: 2026-09-13
 
 diff --git a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
-index 3d9608f6b2..f987da0524 100644
+index 3d9608f6b2..7311092b2f 100644
 --- a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
 +++ b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
 @@ -6,6 +6,15 @@
@@ -29,7 +33,7 @@ index 3d9608f6b2..f987da0524 100644
  namespace Slic3r::Biz::RemovableDrive {
  
  RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& dispatcher) :
-@@ -14,8 +23,142 @@ RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& di
+@@ -14,8 +23,170 @@ RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& di
  {}
  
  namespace {
@@ -96,6 +100,35 @@ index 3d9608f6b2..f987da0524 100644
 +    Unsupported, // UDisks2 is not usable here, the caller should fall back
 +};
 +
++// UDisks2 names its block device objects after the device node, keeping
++// alphanumeric characters and writing every other byte as an underscore
++// followed by two hex digits, so /dev/dm-0 becomes .../block_devices/dm_2d0.
++// Encrypted drives are unlocked as device mapper nodes, so this is not just a
++// theoretical case, and an unencoded "-" is not even a valid object path.
++std::string udisks2_block_device_path(const std::string& device_node)
++{
++    // /dev/mapper/<name> and /dev/disk/by-*/<name> are symlinks to the kernel
++    // device node that UDisks2 names its objects after.
++    boost::system::error_code    ec;
++    const boost::filesystem::path resolved = boost::filesystem::canonical(device_node, ec);
++    const std::string name = (ec ? boost::filesystem::path(device_node) : resolved).filename().string();
++
++    std::string encoded;
++    encoded.reserve(name.size());
++    for (const unsigned char character : name) {
++        const bool alphanumeric = (character >= '0' && character <= '9') ||
++                                  (character >= 'A' && character <= 'Z') ||
++                                  (character >= 'a' && character <= 'z');
++        if (alphanumeric) {
++            encoded += static_cast<char>(character);
++        } else {
++            encoded += fmt::format("_{:02x}", character);
++        }
++    }
++
++    return "/org/freedesktop/UDisks2/block_devices/" + encoded;
++}
++
 +EjectResult eject_via_udisks2(const boost::filesystem::path& path)
 +{
 +    const std::string device = device_node_for_mount_point(path);
@@ -115,8 +148,7 @@ index 3d9608f6b2..f987da0524 100644
 +    }
 +    ScopeGuard connection_guard([connection]() { dbus_connection_unref(connection); });
 +
-+    const std::string object_path =
-+        "/org/freedesktop/UDisks2/block_devices/" + boost::filesystem::path(device).filename().string();
++    const std::string object_path = udisks2_block_device_path(device);
 +
 +    DBusMessage* message = dbus_message_new_method_call(
 +        "org.freedesktop.UDisks2",            // Destination
