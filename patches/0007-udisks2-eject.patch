@@ -7,6 +7,9 @@ Description: Eject removable drives through UDisks2 instead of the umount binary
  UDisks2 names its block device objects, keeping alphanumeric characters
  and writing every other byte as an underscore and two hex digits, so an
  encrypted drive at /dev/mapper/luks-<uuid> reaches the object dm_2d0.
+ A drive that answers DeviceBusy is tried again a few times, since the
+ eject button is pressed right after an export, when the file may still be
+ held open for a moment by something outside the application.
 Author: Jason Scurtu <github@mail.scurtu.me>
 Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
 License: AGPL-3.0-or-later
@@ -14,10 +17,10 @@ Forwarded: not yet submitted
 Last-Update: 2026-09-13
 
 diff --git a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
-index 3d9608f6b2..7311092b2f 100644
+index 3d9608f6b2..ae7e727cca 100644
 --- a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
 +++ b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
-@@ -6,6 +6,15 @@
+@@ -6,6 +6,17 @@
  #include <fmt/format.h>
  #include <boost/process.hpp>
  
@@ -26,14 +29,16 @@ index 3d9608f6b2..7311092b2f 100644
 +#include <dbus/dbus.h>
 +
 +#include <charconv>
++#include <chrono>
 +#include <fstream>
 +#include <sstream>
 +#include <string>
++#include <thread>
 +
  namespace Slic3r::Biz::RemovableDrive {
  
  RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& dispatcher) :
-@@ -14,8 +23,170 @@ RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& di
+@@ -14,8 +25,199 @@ RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& di
  {}
  
  namespace {
@@ -96,6 +101,7 @@ index 3d9608f6b2..7311092b2f 100644
 +enum class EjectResult
 +{
 +    Ejected,     // UDisks2 unmounted the filesystem
++    Busy,        // Something still has the filesystem open, worth another try
 +    Refused,     // UDisks2 answered and declined; umount would not do better
 +    Unsupported, // UDisks2 is not usable here, the caller should fall back
 +};
@@ -189,16 +195,44 @@ index 3d9608f6b2..7311092b2f 100644
 +        return EjectResult::Unsupported;
 +    }
 +
++    if (name == "org.freedesktop.UDisks2.Error.DeviceBusy") {
++        SPDLOG_DEBUG("The drive is still busy: {}", text);
++        return EjectResult::Busy;
++    }
++
 +    SPDLOG_ERROR("Ejecting failed: {}", text);
 +    return EjectResult::Refused;
 +}
 +
++// A file that has just been written can still be held open for a moment, which
++// is exactly the situation the eject button is pressed in: the export finished
++// a second ago. The unmount then fails although nothing is wrong with it, so
++// give the drive a little time instead of reporting a failure straight away.
++EjectResult eject_via_udisks2_with_retries(const boost::filesystem::path& path)
++{
++    constexpr int  attempts = 4;
++    constexpr auto delay    = std::chrono::milliseconds(300);
++
++    for (int attempt = 1;; ++attempt) {
++        const EjectResult result = eject_via_udisks2(path);
++        if (result != EjectResult::Busy) {
++            return result;
++        }
++        if (attempt == attempts) {
++            SPDLOG_ERROR("Ejecting failed: the drive is still busy.");
++            return EjectResult::Refused;
++        }
++        std::this_thread::sleep_for(delay);
++    }
++}
++
  bool eject_inner(const boost::filesystem::path& path)
  {
-+    switch (eject_via_udisks2(path)) {
++    switch (eject_via_udisks2_with_retries(path)) {
 +    case EjectResult::Ejected:     return true;
++    case EjectResult::Busy:        return false; // Not returned, the retries end in Refused.
 +    case EjectResult::Refused:     return false;
-+    case EjectResult::Unsupported: break; // fall through to umount
++    case EjectResult::Unsupported: break;        // Fall through to umount.
 +    }
 +
      // there is no usable command in c++ so terminal command is used instead
