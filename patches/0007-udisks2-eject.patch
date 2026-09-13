@@ -16,11 +16,11 @@ License: AGPL-3.0-or-later
 Forwarded: not yet submitted
 Last-Update: 2026-09-13
 
-diff --git a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfo.hpp b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfo.hpp
+diff --git a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfoLinux.hpp b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfoLinux.hpp
 new file mode 100644
 index 0000000000..706260a9a3
 --- /dev/null
-+++ b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfo.hpp
++++ b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfoLinux.hpp
 @@ -0,0 +1,84 @@
 +#pragma once
 +
@@ -107,14 +107,14 @@ index 0000000000..706260a9a3
 +
 +} // namespace Slic3r::Biz::RemovableDrive
 diff --git a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
-index 3d9608f6b2..ec12b2f498 100644
+index 3d9608f6b2..f6d1ca3819 100644
 --- a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
 +++ b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
 @@ -6,6 +6,17 @@
  #include <fmt/format.h>
  #include <boost/process.hpp>
  
-+#include "MountInfo.hpp"
++#include "MountInfoLinux.hpp"
 +
 +#include "Slic3r/Utils.hpp"
 +
