@@ -517,6 +517,13 @@ modules:
   - type: patch
     path: patches/0007-udisks2-eject.patch
 
+  # In a sandbox the file dialog goes through xdg-desktop-portal, which reports
+  # the exported file under the document portal instead of where it really is,
+  # so the drive it sits on is no longer recognised and the export notification
+  # loses its Eject button.
+  - type: patch
+    path: patches/0013-portal-removable-drive.patch
+
   # disabled on request:
   # # The loading screen drew only a background; show what is being loaded, since
   # # the splash screen that used to say so is not available under Wayland.

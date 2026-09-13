@@ -11,7 +11,7 @@ Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
 License: AGPL-3.0-or-later
 Forwarded: https://github.com/prusa3d/PrusaSlicer/pull/15826
 diff --git a/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp b/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
-index 4fd536c17c..c3782bb058 100644
+index ea480214f7..0bb78bbb10 100644
 --- a/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
 +++ b/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
 @@ -2,6 +2,7 @@
@@ -22,16 +22,16 @@ index 4fd536c17c..c3782bb058 100644
  
  #include <GL/glew.h>
  #include <wx/glcanvas.h>
-@@ -65,6 +66,7 @@ private:
-     bool m_in_render{false};
+@@ -66,6 +67,7 @@ private:
      bool m_pending_frame{false};
      bool m_presented_once{false};
+     bool m_surface_ready{false};
 +    std::optional<std::chrono::steady_clock::time_point> m_first_present_deadline;
  
      static constexpr size_t MAX_INFLIGHT_FRAMES{1};
      GLsync m_frame_fence[MAX_INFLIGHT_FRAMES] = {nullptr};
 diff --git a/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp b/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
-index 96b518b3f4..382e39b5ae 100644
+index e5116c8b38..b880cc1dc6 100644
 --- a/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
 +++ b/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
 @@ -998,6 +998,25 @@ void WXRenderCanvas::on_idle(wxIdleEvent& event)

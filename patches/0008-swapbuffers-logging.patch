@@ -1,44 +1,59 @@
-Description: Do not report the first buffer swaps as errors under Wayland
- With the EGL backend wxGLCanvas::SwapBuffers() returns false until the
- compositor signals that the surface is ready, which wx does deliberately
- because presenting earlier can deadlock inside eglSwapBuffers(). The GLX
- backend never returned false, so enabling EGL turns a normal start into
- several logged errors. Report an error only after a frame has actually
- been presented.
+Description: Do not report expected buffer swaps as errors under Wayland
+ With the EGL backend wxGLCanvas::SwapBuffers() returns false whenever the
+ canvas has no surface it can present to, which the GLX backend never did.
+ There are two ordinary reasons for it, and both were logged as errors. The
+ first is start up: wx deliberately refuses to present until the compositor
+ has signalled that the surface is ready, because presenting earlier can
+ deadlock inside eglSwapBuffers(). The second is the canvas being off
+ screen: wx destroys the EGL subsurface when the widget is unmapped, so
+ minimising the window or leaving its workspace makes every swap fail until
+ it is mapped again. Reports an error only when a swap fails although there
+ is a surface to present to.
 Author: Jason Scurtu <github@mail.scurtu.me>
 Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
 License: AGPL-3.0-or-later
 Forwarded: https://github.com/prusa3d/PrusaSlicer/pull/15826
 Last-Update: 2026-09-13
 diff --git a/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp b/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
-index f009a77b01..4fd536c17c 100644
+index f009a77b01..ea480214f7 100644
 --- a/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
 +++ b/src/slic3r-platform-wx/include/Slic3r/App/Platform/WX/WXRenderCanvas.hpp
-@@ -64,6 +64,7 @@ private:
+@@ -64,6 +64,8 @@ private:
      bool m_initialized{false};
      bool m_in_render{false};
      bool m_pending_frame{false};
 +    bool m_presented_once{false};
++    bool m_surface_ready{false};
  
      static constexpr size_t MAX_INFLIGHT_FRAMES{1};
      GLsync m_frame_fence[MAX_INFLIGHT_FRAMES] = {nullptr};
 diff --git a/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp b/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
-index c0d5f95718..96b518b3f4 100644
+index c0d5f95718..e5116c8b38 100644
 --- a/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
 +++ b/src/slic3r-platform-wx/src/Slic3r/App/Platform/WX/WXRenderCanvas.cpp
-@@ -1117,8 +1117,14 @@ void WXRenderCanvas::end_frame_platform()
+@@ -1117,8 +1117,23 @@ void WXRenderCanvas::end_frame_platform()
          FrameMark;
  
          ZoneScopedN("swap_buffers");
 -        if (!wxGLCanvas::SwapBuffers()) {
+-            SPDLOG_ERROR("Swapping buffers failed!");
 +        if (wxGLCanvas::SwapBuffers()) {
 +            m_presented_once = true;
-+        } else if (m_presented_once) {
-             SPDLOG_ERROR("Swapping buffers failed!");
++            m_surface_ready  = true;
 +        } else {
-+            // Expected: the EGL backend does not present until the compositor
-+            // has signalled that the surface is ready.
-+            SPDLOG_DEBUG("Swapping buffers before the surface is ready.");
++            // The canvas has no surface to present to while it is off screen,
++            // and gets a new one when it is mapped again, which is only ready
++            // once the compositor has signalled it. Both are ordinary states,
++            // and the same ones the canvas starts up in.
++            if (!IsShownOnScreen()) {
++                m_surface_ready = false;
++            }
++
++            if (m_surface_ready) {
++                SPDLOG_ERROR("Swapping buffers failed!");
++            } else {
++                SPDLOG_DEBUG("Swapping buffers before the surface is ready.");
++            }
          }
          m_frame_fence[m_current_frame_idx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
          //assert_no_gl_error();
