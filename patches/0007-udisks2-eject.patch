@@ -16,6 +16,18 @@ License: AGPL-3.0-or-later
 Forwarded: not yet submitted
 Last-Update: 2026-09-13
 
+diff --git a/src/slic3r-shared/CMakeLists.txt b/src/slic3r-shared/CMakeLists.txt
+index bb2d3cae48..5cb6df8154 100644
+--- a/src/slic3r-shared/CMakeLists.txt
++++ b/src/slic3r-shared/CMakeLists.txt
+@@ -1306,6 +1306,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+             src/Slic3r/Biz/AppInstance/AppInstanceMessageHandlerFactoryLinux.cpp
+             include/Slic3r/Biz/AppInstance/SingleInstanceCheckerLock.hpp
+             src/Slic3r/Biz/AppInstance/SingleInstanceCheckerLock.cpp
++            src/Slic3r/Biz/RemovableDrive/MountInfoLinux.hpp
+             src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
+             src/Slic3r/Biz/RemovableDrive/RemovableDriveMonitorLinux.hpp
+             src/Slic3r/Biz/RemovableDrive/RemovableDriveMonitorLinux.cpp
 diff --git a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfoLinux.hpp b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfoLinux.hpp
 new file mode 100644
 index 0000000000..706260a9a3
