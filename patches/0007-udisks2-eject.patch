@@ -16,29 +16,119 @@ License: AGPL-3.0-or-later
 Forwarded: not yet submitted
 Last-Update: 2026-09-13
 
+diff --git a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfo.hpp b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfo.hpp
+new file mode 100644
+index 0000000000..706260a9a3
+--- /dev/null
++++ b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/MountInfo.hpp
+@@ -0,0 +1,84 @@
++#pragma once
++
++#include <charconv>
++#include <optional>
++#include <sstream>
++#include <string>
++
++namespace Slic3r::Biz::RemovableDrive {
++
++struct MountInfoEntry
++{
++    std::string mount_point; // Where the filesystem is mounted, unescaped.
++    std::string source;      // What it is mounted from, a device node for a real disk.
++};
++
++/**
++ * @brief Undoes the escaping /proc/self/mountinfo applies to its path fields.
++ * Spaces, tabs, newlines and backslashes are written as a backslash followed by
++ * three octal digits, so that no field can contain whitespace.
++ */
++inline std::string unescape_mount_info_field(const std::string& field)
++{
++    std::string unescaped;
++    unescaped.reserve(field.size());
++
++    for (std::size_t i = 0; i < field.size(); ++i) {
++        if (field[i] == '\\' && i + 3 < field.size()) {
++            const char* first = field.data() + i + 1;
++            const char* last  = first + 3;
++
++            unsigned value{};
++            if (std::from_chars(first, last, value, 8).ptr == last) {
++                unescaped += static_cast<char>(value);
++                i += 3;
++                continue;
++            }
++        }
++        unescaped += field[i];
++    }
++
++    return unescaped;
++}
++
++/**
++ * @brief Reads the mount point and the mount source out of one mountinfo line.
++ * Returns nothing for a line that does not have them, which includes the empty
++ * line and anything that is not mountinfo at all.
++ *
++ * 36 35 98:0 /mnt1 /mnt2 rw,noatime shared:1 - ext3 /dev/root rw,errors=continue
++ *                        ^ field 5                  ^ separator
++ *                                                     ^ type  ^ source
++ *
++ * The number of fields between the mount point and the separator varies, which
++ * is why the separator exists.
++ */
++inline std::optional<MountInfoEntry> parse_mount_info_line(const std::string& line)
++{
++    std::istringstream fields(line);
++    std::string        field;
++
++    std::string mount_point;
++    for (int i = 0; i < 5; ++i) {
++        if (!(fields >> field)) {
++            return std::nullopt;
++        }
++        mount_point = field;
++    }
++
++    // Skip the optional fields, however many there are, and the separator.
++    while (fields >> field && field != "-") {}
++    if (field != "-") {
++        return std::nullopt;
++    }
++
++    std::string type;
++    std::string source;
++    if (!(fields >> type >> source)) {
++        return std::nullopt;
++    }
++
++    return MountInfoEntry{unescape_mount_info_field(mount_point), unescape_mount_info_field(source)};
++}
++
++} // namespace Slic3r::Biz::RemovableDrive
 diff --git a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
-index 3d9608f6b2..ae7e727cca 100644
+index 3d9608f6b2..ec12b2f498 100644
 --- a/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
 +++ b/src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp
 @@ -6,6 +6,17 @@
  #include <fmt/format.h>
  #include <boost/process.hpp>
  
++#include "MountInfo.hpp"
++
 +#include "Slic3r/Utils.hpp"
 +
 +#include <dbus/dbus.h>
 +
-+#include <charconv>
 +#include <chrono>
 +#include <fstream>
-+#include <sstream>
 +#include <string>
 +#include <thread>
 +
  namespace Slic3r::Biz::RemovableDrive {
  
  RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& dispatcher) :
-@@ -14,8 +25,199 @@ RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& di
+@@ -14,8 +25,177 @@ RemovableDriveService::RemovableDriveService(Platform::IMainThreadDispatcher& di
  {}
  
  namespace {
@@ -48,50 +138,28 @@ index 3d9608f6b2..ae7e727cca 100644
 +std::string device_node_for_mount_point(const boost::filesystem::path& path)
 +{
 +    // /proc/self/mountinfo is used rather than /proc/mounts because its mount
-+    // point field is unambiguous and octal escaped in a documented way.
-+    std::ifstream mountinfo("/proc/self/mountinfo");
-+    if (!mountinfo)
++    // point field is unambiguous and escaped in a documented way.
++    std::ifstream mount_info("/proc/self/mountinfo");
++    if (!mount_info) {
 +        return {};
-+
-+    const std::string wanted = path.string();
-+    std::string line;
-+    std::string result;
-+    while (std::getline(mountinfo, line)) {
-+        // 36 35 98:0 /mnt1 /mnt2 rw,noatime - ext3 /dev/root rw,errors=continue
-+        //                        ^ field 5     ^ separator   ^ mount source
-+        std::istringstream fields(line);
-+        std::string field;
-+        std::string mount_point;
-+        for (int i = 0; i < 5 && fields >> field; ++i)
-+            mount_point = field;
-+
-+        // Mount points containing spaces, tabs, newlines or backslashes are
-+        // escaped as octal sequences.
-+        std::string unescaped;
-+        for (std::size_t i = 0; i < mount_point.size(); ++i) {
-+            unsigned value{};
-+            const char* first = mount_point.data() + i + 1;
-+            const char* last  = first + 3;
-+            if (mount_point[i] == '\\' && i + 3 < mount_point.size() &&
-+                std::from_chars(first, last, value, 8).ptr == last) {
-+                unescaped += static_cast<char>(value);
-+                i += 3;
-+            } else {
-+                unescaped += mount_point[i];
-+            }
-+        }
-+        if (unescaped != wanted)
-+            continue;
-+
-+        // Skip the optional fields and the "-" separator, then read the type
-+        // and the mount source.
-+        while (fields >> field && field != "-") {}
-+        std::string fstype;
-+        std::string source;
-+        if (fields >> fstype >> source)
-+            result = source;
-+        // Keep scanning: for stacked mounts the last entry is the effective one.
 +    }
++
++    // mountinfo holds the mount points the kernel resolved, so a path that
++    // reaches here through a symlink would never match one of them.
++    boost::system::error_code ec;
++    const boost::filesystem::path canonical_path = boost::filesystem::canonical(path, ec);
++    const std::string wanted = (ec ? path : canonical_path).string();
++
++    std::string result;
++    std::string line;
++    while (std::getline(mount_info, line)) {
++        const std::optional<MountInfoEntry> entry = parse_mount_info_line(line);
++        if (entry && entry->mount_point == wanted) {
++            // Keep scanning: where mounts are stacked, the last one is on top.
++            result = entry->source;
++        }
++    }
++
 +    return result;
 +}
 +
