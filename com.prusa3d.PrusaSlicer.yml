@@ -453,7 +453,6 @@ modules:
     install -Dm644 com.prusa3d.PrusaSlicer.metainfo.xml /app/share/metainfo/com.prusa3d.PrusaSlicer.metainfo.xml
     install -Dm644 com.prusa3d.PrusaSlicer.svg /app/share/icons/hicolor/scalable/apps/com.prusa3d.PrusaSlicer.svg
     install -Dm644 com.prusa3d.PrusaSlicer.png /app/share/icons/hicolor/256x256/apps/com.prusa3d.PrusaSlicer.png
-    install umount /app/bin
   - |
     mkdir -p /app/share/mime/packages/
     install -m644 -p -t /app/share/mime/packages com.prusa3d.PrusaSlicer.mime.xml
@@ -513,8 +512,8 @@ modules:
     path: patches/0012-wayland-app-id.patch
 
   # Eject removable drives through UDisks2 instead of running the umount
-  # binary, which needs privileges the sandbox does not have. Makes the
-  # bundled umount shim redundant (kept for now as a fallback).
+  # binary, which needs privileges the sandbox does not have. Replaces the
+  # umount shim that used to forward the call to UDisks2 over gdbus.
   - type: patch
     path: patches/0007-udisks2-eject.patch
 
@@ -532,10 +531,6 @@ modules:
   # AppData metainfo for Gnome Software & Co.
   - type: file
     path: com.prusa3d.PrusaSlicer.metainfo.xml
-
-  # umount wrapper used to redirect umount calls to udisk2
-  - type: file
-    path: umount
 
   # TODO: remove mime when PR created and is merged upstream
   # Adding MIME type for 3mf
