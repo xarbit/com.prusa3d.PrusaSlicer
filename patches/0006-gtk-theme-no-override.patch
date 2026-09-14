@@ -10,29 +10,19 @@ Forwarded: not yet submitted
 Last-Update: 2026-09-13
 
 diff --git a/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp b/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
-index d881777a6a..2cc3df217a 100644
+index d881777..3dd0f16 100644
 --- a/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
 +++ b/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
-@@ -169,11 +169,17 @@ int run(const Slic3r::App::InitParams& init_params, AppServices& app_services)
+@@ -168,12 +168,6 @@ int run(const Slic3r::App::InitParams& init_params, AppServices& app_services)
+     if (::getenv("WAYLAND_DISPLAY") == nullptr) {
          ::setenv("GDK_BACKEND", "x11", /* replace */ false);
      }
- 
+-
 -    if (app_services.app_config().get<Theme::Style>("theme") == Theme::Style::Light) {
 -        setenv("GTK_THEME", "Adwaita:light", 1);
 -    } else {
 -        setenv("GTK_THEME", "Adwaita:dark", 1);
 -    }
-+    // GTK_THEME is deliberately not set here. wxWidgets skips creating its
-+    // org.freedesktop.portal.Settings proxy when GTK_THEME is present in the
-+    // environment (see wxSystemSettingsModule::OnInit), and that proxy is what
-+    // reads the desktop's org.freedesktop.appearance color-scheme. Setting it
-+    // therefore disabled the only way to learn the system light/dark
-+    // preference inside a sandbox (#13778) and made the SetAppearance() call
-+    // below fail, since UpdateColorScheme() returns false without the proxy.
-+    //
-+    // The light/dark choice is applied through SetAppearance() instead, which
-+    // sets gtk-application-prefer-dark-theme and works with any GTK theme. A
-+    // user who wants to pin a specific theme can still set GTK_THEME.
  #endif
  
      bool single_instance_app_config =

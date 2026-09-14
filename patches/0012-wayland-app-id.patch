@@ -11,7 +11,7 @@ Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
 License: AGPL-3.0-or-later
 Forwarded: https://github.com/prusa3d/PrusaSlicer/pull/15826
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 98286f67cb..e14117ae54 100644
+index 98286f6..e14117a 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -96,10 +96,13 @@ include(GNUInstallDirs)
@@ -31,7 +31,7 @@ index 98286f67cb..e14117ae54 100644
      )
  endif ()
 diff --git a/src/platform/unix/com.prusa3d.PrusaSlicer.desktop.in b/src/platform/unix/com.prusa3d.PrusaSlicer.desktop.in
-index 5d3528cdf9..7b760a43c0 100644
+index 5d3528c..7b760a4 100644
 --- a/src/platform/unix/com.prusa3d.PrusaSlicer.desktop.in
 +++ b/src/platform/unix/com.prusa3d.PrusaSlicer.desktop.in
 @@ -9,4 +9,4 @@ MimeType=model/stl;application/vnd.ms-3mfdocument;application/prs.wavefront-obj;
@@ -41,7 +41,7 @@ index 5d3528cdf9..7b760a43c0 100644
 -StartupWMClass=prusa-slicer
 +StartupWMClass=@SLIC3R_DESKTOP_FILE_NAME@
 diff --git a/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp b/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
-index 2cc3df217a..32012af181 100644
+index 3dd0f16..9d9ed09 100644
 --- a/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
 +++ b/src/slic3r-app-desktop/src/Slic3r/App/Desktop/DesktopApp.cpp
 @@ -1,5 +1,11 @@
@@ -59,17 +59,17 @@ index 2cc3df217a..32012af181 100644
 @@ -169,6 +175,11 @@ int run(const Slic3r::App::InitParams& init_params, AppServices& app_services)
          ::setenv("GDK_BACKEND", "x11", /* replace */ false);
      }
- 
+ #endif
 +    // A compositor finds a window's icon through the desktop file named after
 +    // the app id the window announces. GTK takes that from the program name,
 +    // which defaults to the executable, so it has to be set before GTK starts.
 +    ::g_set_prgname(SLIC3R_DESKTOP_FILE_NAME);
 +
-     // GTK_THEME is deliberately not set here. wxWidgets skips creating its
-     // org.freedesktop.portal.Settings proxy when GTK_THEME is present in the
-     // environment (see wxSystemSettingsModule::OnInit), and that proxy is what
+ 
+     bool single_instance_app_config =
+         init_params.misc.single_instance.has_value() && init_params.misc.single_instance;
 diff --git a/src/slic3r-base/include/Slic3r/Version.hpp.in b/src/slic3r-base/include/Slic3r/Version.hpp.in
-index c61ed0c960..d90c5f0dbe 100644
+index c61ed0c..d90c5f0 100644
 --- a/src/slic3r-base/include/Slic3r/Version.hpp.in
 +++ b/src/slic3r-base/include/Slic3r/Version.hpp.in
 @@ -4,10 +4,12 @@
