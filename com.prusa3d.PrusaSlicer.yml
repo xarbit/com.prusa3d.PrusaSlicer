@@ -3,7 +3,7 @@ runtime: org.gnome.Platform
 runtime-version: "50"
 sdk: org.gnome.Sdk
 command: slic3r-app-launcher
-desktop-file-name-suffix: " (alpha11)"
+desktop-file-name-suffix: " (alpha12)"
 separate-locales: false
 finish-args:
 - --share=ipc
@@ -93,7 +93,7 @@ modules:
   # PrusaSlicer dependencies source
   - type: git
     url: https://github.com/prusa3d/PrusaSlicer
-    tag: version_3.0.0-alpha11
+    tag: version_3.0.0-alpha12
 
   # yamlCpp
   - type: file
@@ -397,21 +397,15 @@ modules:
 
   # LibBGCode
   - type: file
-    url: https://github.com/prusa3d/libbgcode/archive/d4da9073616d70a43c151e8c1d7fbff879d2e08a.zip
+    url: https://github.com/prusa3d/libbgcode/archive/6744dbe827c03cf3a99b7783de43c9d945e38b97.zip
     dest: external-packages/LibBGCode
-    sha256: 73076348e80315d1c2584f883c6b07637cd847c74bca7e9279e42b56a308f948
+    sha256: 139fe2a40fd0bdb6be7e7b86c9306bcb148eeb1872c36791a8cf87e00e4800b8
 
   # rangev3
   - type: file
     url: https://github.com/ericniebler/range-v3/archive/refs/tags/0.12.0.tar.gz
     dest: external-packages/rangev3
     sha256: 015adb2300a98edfceaf0725beec3337f542af4915cec4d0b89fa0886f4ba9cb
-
-  - type: patch
-    path: patches/blosc_patch.patch
-
-  - type: patch
-    path: patches/arm_test.patch
 
   # Wayland: build wxGLCanvas with the EGL backend and GLEW against
   # eglGetProcAddress, instead of GLX which is X11-only.
@@ -469,7 +463,7 @@ modules:
   # Pre-Build
   - type: git
     url: https://github.com/prusa3d/PrusaSlicer
-    tag: version_3.0.0-alpha11
+    tag: version_3.0.0-alpha12
   # Wayland: stop forcing GDK_BACKEND=x11 when a Wayland session is present.
   # Depends on the EGL dep patch above. Upstream issue #8284.
   - type: patch

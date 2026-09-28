@@ -7,13 +7,13 @@ Author: Jason Scurtu <github@mail.scurtu.me>
 Copyright: 2026 Jason Scurtu <github@mail.scurtu.me>
 License: AGPL-3.0-or-later
 Forwarded: https://github.com/prusa3d/PrusaSlicer/pull/15826
-Last-Update: 2026-09-13
+Last-Update: 2026-09-27
 
 diff --git a/src/slic3r-platform-wx/CMakeLists.txt b/src/slic3r-platform-wx/CMakeLists.txt
-index e43a2ccbd5..c9b378b7b7 100644
+index 38e7b6a411..2811a932b3 100644
 --- a/src/slic3r-platform-wx/CMakeLists.txt
 +++ b/src/slic3r-platform-wx/CMakeLists.txt
-@@ -36,6 +36,29 @@ target_link_libraries(slic3r-platform-wx PUBLIC
+@@ -38,6 +38,29 @@ target_link_libraries(slic3r-platform-wx PUBLIC
      imgui_backend_ogl3
      slic3r-shared
  )
@@ -42,4 +42,4 @@ index e43a2ccbd5..c9b378b7b7 100644
 +
  target_include_directories(slic3r-platform-wx PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
  
- 
+ if (UNIX AND NOT APPLE)
